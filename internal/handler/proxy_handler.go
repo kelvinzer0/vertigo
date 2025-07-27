@@ -28,17 +28,9 @@ const (
 type OpenAIChatRequest struct {
 	Model          string        `json:"model"`
 	Messages       []store.Message `json:"messages"`
-	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`	
 	ConversationID string        `json:"conversation_id,omitempty"` // New field for context sharing
 	// Add other relevant fields like temperature, max_tokens, etc.
-}
-
-// OutgoingChatRequest represents the final request body sent to Google's OpenAI-compatible chat endpoint.
-type OutgoingChatRequest struct {
-	Model string `json:"model"`
-	Messages []store.Message `json:"messages"`
-	Temperature float32 `json:"temperature,omitempty"`
-	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 // NewProxyHandler creates a new reverse proxy handler.
@@ -63,7 +55,7 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 		}
 
 		// Determine the actual Gemini model to use (vertigo-1.0-blast logic)
-		// modifiedOriginalBody now contains the correct Gemini model name in its 'model' field
+		// This returns the original request body with the 'model' field updated
 		_, modifiedOriginalBody, err := proxy.SelectModel(body)
 		if err != nil {
 			log.Errorf("Failed to select model for chat: %v", err)
@@ -106,13 +98,17 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 			return
 		}
 
-		// Construct the final outgoing request body for Google's OpenAI-compatible endpoint
-		var outgoingReq OutgoingChatRequest
-		// Unmarshal modifiedOriginalBody to get the model, temperature, max_tokens etc.
-		json.Unmarshal(modifiedOriginalBody, &outgoingReq)
-		outgoingReq.Messages = conversation.Messages // Overwrite messages with full conversation history
+		// Now, construct the final outgoing request body for Google's OpenAI-compatible endpoint.
+		// We start with the modifiedOriginalBody (which has the correct model name)
+		// and then inject the full conversation history into its 'messages' field.
+		var finalOutgoingReq OpenAIChatRequest // Use OpenAIChatRequest as the target structure
+		if err := json.Unmarshal(modifiedOriginalBody, &finalOutgoingReq); err != nil {
+			log.Errorf("Failed to unmarshal modifiedOriginalBody: %v", err)
+			return
+		}
+		finalOutgoingReq.Messages = conversation.Messages // Overwrite messages with full conversation history
 
-		finalOutgoingBody, err := json.Marshal(outgoingReq)
+		finalOutgoingBody, err := json.Marshal(finalOutgoingReq)
 		if err != nil {
 			log.Errorf("Failed to marshal final outgoing chat request: %v", err)
 			return
@@ -127,11 +123,13 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 		apiKey := keyRotator.GetNextKey()
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 
-		// Set the target URL to Google's OpenAI-compatible endpoint
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
-		req.URL.Path = "/v1beta/openai/chat/completions" // Corrected path
-		req.Host = target.Host
+		// *** CRITICAL FIX: Explicitly set the entire req.URL to ensure the correct path is used ***
+		req.URL = &url.URL{
+			Scheme: target.Scheme,
+			Host:   target.Host,
+			Path:   "/v1beta/openai/chat/completions",
+		}
+		req.Host = target.Host // Ensure Host header is correct
 	}
 
 	reverseProxy.ModifyResponse = func(resp *http.Response) error {
