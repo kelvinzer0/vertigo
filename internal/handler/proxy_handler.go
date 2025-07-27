@@ -123,12 +123,9 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 		apiKey := keyRotator.GetNextKey()
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 
-		// *** CRITICAL FIX: Explicitly set the entire req.URL to ensure the correct path is used ***
-		req.URL = &url.URL{
-			Scheme: target.Scheme,
-			Host:   target.Host,
-			Path:   "/v1beta/openai/chat/completions",
-		}
+		// Set the target URL to Google's OpenAI-compatible endpoint
+		req.URL.Path = "/v1beta/openai/chat/completions" // Corrected path
+		req.URL.RawQuery = "" // Clear any existing query parameters
 		req.Host = target.Host // Ensure Host header is correct
 	}
 
