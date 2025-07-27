@@ -5,10 +5,11 @@ import (
 )
 
 const (
-	ModelVertigoBlast = "vertigo-1.0-blast"
-	ModelGeminiFlash  = "gemini-2.0-flash"
-	ModelGeminiFlashPro = "gemini-2.5-flash"
-	ModelGeminiPro    = "gemini-2.5-pro"
+	ModelVertigoBlast     = "vertigo-1.0-blast"
+	ModelGemini20Flash    = "gemini-2.0-flash"
+	ModelGemini25FlashLite = "gemini-2.5-flash-lite"
+	ModelGemini25Flash    = "gemini-2.5-flash"
+	ModelGemini25Pro      = "gemini-2.5-pro"
 )
 
 // RequestBody represents the relevant fields from the incoming JSON request.
@@ -30,14 +31,14 @@ func SelectModel(body []byte) (string, []byte, error) {
 		return reqBody.Model, body, nil
 	}
 
-	selectedModel := ModelGeminiFlashPro // Default model
+	selectedModel := ModelGemini25Flash // Default model
 	switch reqBody.ReasoningEffort {
 	case "low":
-		selectedModel = ModelGeminiFlash
+		selectedModel = ModelGemini20Flash
 	case "medium":
-		selectedModel = ModelGeminiFlashPro
+		selectedModel = ModelGemini25Flash
 	case "high":
-		selectedModel = ModelGeminiPro
+		selectedModel = ModelGemini25Pro
 	}
 
 	// Create a new map to represent the modified request body

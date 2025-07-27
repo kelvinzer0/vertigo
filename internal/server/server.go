@@ -9,6 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"vertigo/internal/api"
+	"vertigo/internal/config"
+	"vertigo/internal/proxy"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -19,11 +23,20 @@ type Server struct {
 }
 
 // New creates a new Server instance.
-func New(port int, host string, handler http.Handler, log *logrus.Logger) *Server {
+func New(cfg *config.Config, proxyManager *proxy.Manager, log *logrus.Logger) *Server {
+	mux := http.NewServeMux()
+
+	openAIAPI := api.NewOpenAIAPI(proxyManager, log)
+
+	// Register handlers
+	mux.HandleFunc("/openai/v1/chat/completions", openAIAPI.ChatCompletionsHandler)
+	mux.HandleFunc("/openai/v1/models", openAIAPI.ModelsHandler)
+	mux.HandleFunc("/openai/v1/models/", openAIAPI.ModelsHandler)
+
 	return &Server{
 		httpServer: &http.Server{
-			Addr:    fmt.Sprintf("%s:%d", host, port),
-			Handler: handler,
+			Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+			Handler: mux,
 		},
 		log: log,
 	}
@@ -59,3 +72,4 @@ func (s *Server) Shutdown() {
 
 	s.log.Info("Server gracefully stopped")
 }
+
