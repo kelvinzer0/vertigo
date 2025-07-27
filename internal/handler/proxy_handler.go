@@ -33,6 +33,14 @@ type OpenAIChatRequest struct {
 	// Add other relevant fields like temperature, max_tokens, etc.
 }
 
+// OutgoingChatRequest represents the final request body sent to Google's OpenAI-compatible chat endpoint.
+type OutgoingChatRequest struct {
+	Model string `json:"model"`
+	Messages []store.Message `json:"messages"`
+	Temperature float32 `json:"temperature,omitempty"`
+	MaxTokens int `json:"max_tokens,omitempty"`
+}
+
 // NewProxyHandler creates a new reverse proxy handler.
 func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.ConversationStore, log *logrus.Logger) http.HandlerFunc {
 	target, _ := url.Parse("https://generativelanguage.googleapis.com")
@@ -55,7 +63,8 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 		}
 
 		// Determine the actual Gemini model to use (vertigo-1.0-blast logic)
-		selectedModel, modifiedOriginalBody, err := proxy.SelectModel(body)
+		// modifiedOriginalBody now contains the correct Gemini model name in its 'model' field
+		_, modifiedOriginalBody, err := proxy.SelectModel(body)
 		if err != nil {
 			log.Errorf("Failed to select model for chat: %v", err)
 			return	
@@ -97,39 +106,31 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 			return
 		}
 
-		// Construct Gemini request with full conversation history
-		geminiReq := gemini.ChatRequest{}
-		geminiReq.Contents = make([]gemini.ChatContent, len(conversation.Messages))
-		for i, msg := range conversation.Messages {
-			geminiReq.Contents[i].Role = msg.Role
-			geminiReq.Contents[i].Parts = []gemini.ChatPart{ {Text: msg.Content} }
-		}
+		// Construct the final outgoing request body for Google's OpenAI-compatible endpoint
+		var outgoingReq OutgoingChatRequest
+		// Unmarshal modifiedOriginalBody to get the model, temperature, max_tokens etc.
+		json.Unmarshal(modifiedOriginalBody, &outgoingReq)
+		outgoingReq.Messages = conversation.Messages // Overwrite messages with full conversation history
 
-		// Copy generation config from original request if available
-		var tempReq struct { Temperature float32 `json:"temperature,omitempty"`; MaxTokens int `json:"max_tokens,omitempty"` }
-		json.Unmarshal(modifiedOriginalBody, &tempReq) // Use modifiedOriginalBody to get other params
-		geminiReq.GenerationConfig.Temperature = tempReq.Temperature
-		geminiReq.GenerationConfig.MaxOutputTokens = tempReq.MaxTokens
-
-		modifiedBodyForGemini, err := json.Marshal(geminiReq)
+		finalOutgoingBody, err := json.Marshal(outgoingReq)
 		if err != nil {
-			log.Errorf("Failed to marshal Gemini chat request with history: %v", err)
+			log.Errorf("Failed to marshal final outgoing chat request: %v", err)
 			return
 		}
 
 		// Set the modified body for the outgoing request
-		req.Body = ioutil.NopCloser(bytes.NewBuffer(modifiedBodyForGemini))
-		req.ContentLength = int64(len(modifiedBodyForGemini))
+		req.Body = ioutil.NopCloser(bytes.NewBuffer(finalOutgoingBody))
+		req.ContentLength = int64(len(finalOutgoingBody))
 		req.Header.Set("Content-Type", "application/json")
 
 		// Set the API key
 		apiKey := keyRotator.GetNextKey()
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 
-		// Set the target URL
+		// Set the target URL to Google's OpenAI-compatible endpoint
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
-		req.URL.Path = "/v1beta/models/" + selectedModel + ":generateContent"
+		req.URL.Path = "/v1beta/openai/chat/completions" // Corrected path
 		req.Host = target.Host
 	}
 
