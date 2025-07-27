@@ -1,0 +1,9 @@
+server:
+  port: 1925
+  host: "0.0.0.0"
+
+gemini:
+  api_keys:
+    - "AIzaSyAmvo6EZ5-GGOmo9TvPfXbpLzRN8FwqqJk"
+    - "AIzaSyCiyb2TcUNFidan1LQkuP_bru42yoW7ueQ"
+    - "AIzaSyBSXR8L9VgNWvAfETu4nWWC2AdJ-SRlIug"
