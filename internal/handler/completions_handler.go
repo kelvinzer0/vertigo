@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"vertigo/internal/gemini"
 	"vertigo/internal/proxy"
 
 	"github.com/sirupsen/logrus"
@@ -21,48 +22,6 @@ type OpenAICompletionsRequest struct {
 	MaxTokens   int           `json:"max_tokens"`
 	Temperature float32       `json:"temperature"`
 	// Add other relevant fields as needed
-}
-
-// GeminiChatPart represents a part in Gemini's content.
-type GeminiChatPart struct {
-	Text string `json:"text"`
-}
-
-// GeminiChatContent represents a content block in Gemini's chat request.
-type GeminiChatContent struct {
-	Role  string           `json:"role"`
-	Parts []GeminiChatPart `json:"parts"`
-}
-
-// GeminiChatRequest represents the outgoing request format for Gemini's chat/completions.
-type GeminiChatRequest struct {
-	Contents []GeminiChatContent `json:"contents"`
-	GenerationConfig struct {
-		MaxOutputTokens int     `json:"maxOutputTokens"`	
-		Temperature     float32 `json:"temperature"`
-	} `json:"generationConfig"`
-	// Add other relevant fields as needed
-}
-
-// GeminiCandidatePart represents a part in Gemini's candidate content.
-type GeminiCandidatePart struct {
-	Text string `json:"text"`
-}
-
-// GeminiCandidateContent represents a content block in Gemini's chat response candidate.
-type GeminiCandidateContent struct {
-	Parts []GeminiCandidatePart `json:"parts"`
-}
-
-// GeminiChatResponse represents the incoming response format from Gemini's chat/completions.
-type GeminiChatResponse struct {
-	Candidates []struct {
-		Content GeminiCandidateContent `json:"content"`
-	} `json:"candidates"`
-	UsageMetadata struct {
-		PromptTokenCount int `json:"promptTokenCount"`	
-		TotalTokenCount  int `json:"totalTokenCount"`
-	} `json:"usageMetadata"`
 }
 
 // OpenAICompletionsResponse represents the outgoing response format for /v1/completions.
@@ -113,13 +72,13 @@ func NewCompletionsHandler(keyRotator *proxy.KeyRotator, log *logrus.Logger) htt
 		}
 
 		// Transform to Gemini chat format
-		geminiReq := GeminiChatRequest{}
-		geminiReq.Contents = make([]GeminiChatContent, 1)
+		geminiReq := gemini.ChatRequest{}
+		geminiReq.Contents = make([]gemini.ChatContent, 1)
 		geminiReq.Contents[0].Role = "user"
 		
 		switch p := openAIReq.Prompt.(type) {
 		case string:
-			geminiReq.Contents[0].Parts = []GeminiChatPart{ {Text: p} }
+			geminiReq.Contents[0].Parts = []gemini.ChatPart{ {Text: p} }
 		case []interface{}:
 			// Handle array of strings for prompt
 			var fullPrompt string
@@ -128,7 +87,7 @@ func NewCompletionsHandler(keyRotator *proxy.KeyRotator, log *logrus.Logger) htt
 					fullPrompt += s + "\n"
 				}
 			}
-			geminiReq.Contents[0].Parts = []GeminiChatPart{ {Text: fullPrompt} }
+			geminiReq.Contents[0].Parts = []gemini.ChatPart{ {Text: fullPrompt} }
 		}
 
 		geminiReq.GenerationConfig.MaxOutputTokens = openAIReq.MaxTokens
@@ -167,7 +126,7 @@ func NewCompletionsHandler(keyRotator *proxy.KeyRotator, log *logrus.Logger) htt
 		}
 		resp.Body.Close() // We must close the original body
 
-		var geminiResp GeminiChatResponse
+		var geminiResp gemini.ChatResponse
 		if err := json.Unmarshal(body, &geminiResp); err != nil {
 			return err
 		}

@@ -9,6 +9,7 @@ import (
 	"vertigo/internal/middleware"
 	"vertigo/internal/proxy"
 	"vertigo/internal/server"
+	"vertigo/internal/store"
 
 	"github.com/sirupsen/logrus"
 )
@@ -32,9 +33,10 @@ func main() {
 
 	// --- Dependencies ---
 	keyRotator := proxy.NewKeyRotator(cfg.Gemini.APIKeys)
+	convStore := store.NewConversationStore()
 
 	// --- HTTP Server ---
-	proxyHandler := handler.NewProxyHandler(keyRotator, log)
+	proxyHandler := handler.NewProxyHandler(keyRotator, convStore, log)
 	loggedProxyHandler := middleware.Logger(proxyHandler, log)
 
 	embeddingHandler := handler.NewEmbeddingHandler(keyRotator, log)
