@@ -1,0 +1,9 @@
+server:
+  port: 1925
+  host: "0.0.0.0"
+
+gemini:
+  api_keys:
+    - "YOUR_GEMINI_API_KEY_1"
+    - "YOUR_GEMINI_API_KEY_2"
+    - "YOUR_GEMINI_API_KEY_3"
