@@ -37,8 +37,18 @@ func main() {
 	proxyHandler := handler.NewProxyHandler(keyRotator, log)
 	loggedProxyHandler := middleware.Logger(proxyHandler, log)
 
+	embeddingHandler := handler.NewEmbeddingHandler(keyRotator, log)
+	loggedEmbeddingHandler := middleware.Logger(embeddingHandler, log)
+
+	completionsHandler := handler.NewCompletionsHandler(keyRotator, log)
+	loggedCompletionsHandler := middleware.Logger(completionsHandler, log)
+
 	mux := http.NewServeMux()
 	mux.Handle("/openai/v1/chat/completions", loggedProxyHandler)
+	mux.HandleFunc("/openai/v1/models", handler.ModelsHandler)
+	mux.HandleFunc("/openai/v1/models/", handler.ModelsHandler)
+	mux.Handle("/openai/v1/embeddings", loggedEmbeddingHandler)
+	mux.Handle("/openai/v1/completions", loggedCompletionsHandler)
 
 	srv := server.New(cfg.Server.Port, cfg.Server.Host, mux, log)
 
