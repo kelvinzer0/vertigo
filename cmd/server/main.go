@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"vertigo/internal/config"
+	"vertigo/internal/db"
 	"vertigo/internal/handler"
 	"vertigo/internal/middleware"
 	"vertigo/internal/proxy"
@@ -31,9 +32,16 @@ func main() {
 		log.Fatal("No API keys found in the configuration")
 	}
 
+	// --- Database Initialization ---
+	database, err := db.InitDB("vertigo.db")
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.CloseDB(database)
+
 	// --- Dependencies ---
 	keyRotator := proxy.NewKeyRotator(cfg.Gemini.APIKeys)
-	convStore := store.NewConversationStore()
+	convStore := store.NewConversationStore(database)
 
 	// --- HTTP Server ---
 	proxyHandler := handler.NewProxyHandler(keyRotator, convStore, log)

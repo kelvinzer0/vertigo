@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -14,6 +15,13 @@ import (
 	"vertigo/internal/store"
 
 	"github.com/sirupsen/logrus"
+)
+
+// Define a custom context key type to avoid collisions.
+type contextKey string
+
+const ( 
+	conversationIDContextKey contextKey = "conversationID"
 )
 
 // OpenAIChatRequest represents the incoming request format for OpenAI chat completions.
@@ -50,26 +58,43 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 		selectedModel, modifiedOriginalBody, err := proxy.SelectModel(body)
 		if err != nil {
 			log.Errorf("Failed to select model for chat: %v", err)
-			return
+			return	
 		}
 
 		// --- Conversation Context Handling ---
-		var conversation *store.Conversation
-		if openAIReq.ConversationID != "" {
-			conversation = convStore.GetConversation(openAIReq.ConversationID)
-		} else {
-			// If no conversation_id, treat as a new conversation (or generate one)
-			// For simplicity, we'll just use the current message for now if no ID is provided.
-			conversation = &store.Conversation{Messages: []store.Message{}}
+		conversationID := openAIReq.ConversationID
+		if conversationID == "" {
+			// Generate a new conversation ID if not provided by the client
+			conversationID = time.Now().Format("20060102150405") // Simple ID for now
 		}
 
-		// Append current user message to conversation history
-		// Assuming the last message in openAIReq.Messages is the current user input
+		// Store conversationID in request context for ModifyResponse to access
+		ctx := context.WithValue(req.Context(), conversationIDContextKey, conversationID)
+		req = req.WithContext(ctx)
+
+		conversation, err := convStore.GetConversation(conversationID)
+		if err != nil {
+			log.Errorf("Failed to get conversation %s: %v", conversationID, err)
+			return
+		}
+
+		// Append current user message to conversation history in store
 		if len(openAIReq.Messages) > 0 {
 			lastUserMessage := openAIReq.Messages[len(openAIReq.Messages)-1]
 			if lastUserMessage.Role == "user" {
-				conversation.Messages = append(conversation.Messages, lastUserMessage)
+				err = convStore.AddMessage(conversationID, lastUserMessage.Role, lastUserMessage.Content)
+				if err != nil {
+					log.Errorf("Failed to add user message to conversation %s: %v", conversationID, err)
+					return
+				}
 			}
+		}
+
+		// Re-fetch conversation to get the latest state including the just-added user message
+		conversation, err = convStore.GetConversation(conversationID)
+		if err != nil {
+			log.Errorf("Failed to re-fetch conversation %s after adding user message: %v", conversationID, err)
+			return
 		}
 
 		// Construct Gemini request with full conversation history
@@ -113,6 +138,13 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 			return nil
 		}
 
+		// Retrieve conversationID from the request context
+		conversationID, ok := resp.Request.Context().Value(conversationIDContextKey).(string)
+		if !ok || conversationID == "" {
+			log.Warn("Conversation ID not found in context for response.")
+			return nil // Cannot update conversation history without ID
+		}
+
 		// Read the response body from Gemini
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
@@ -133,20 +165,16 @@ func NewProxyHandler(keyRotator *proxy.KeyRotator, convStore *store.Conversation
 			geminiResponseMessage = geminiResp.Candidates[0].Content.Parts[0].Text
 		}
 
-		// --- Update Conversation Context ---
-		// We need the original request to get the conversation_id. This is tricky with ReverseProxy.
-		// For simplicity, we'll assume the conversation_id is passed in the request context or a global map.
-		// A more robust solution would involve storing the conversation_id in a custom ResponseWriter or a map keyed by request ID.
-		// For now, we'll just append the response to the last conversation that was processed.
-		// This is a simplification and might not work correctly in concurrent scenarios without further state management.
-		// A better approach would be to pass the conversation ID through the request context or a custom transport.
-
-		// For demonstration, let's assume we can retrieve the conversation ID from the request context.
-		// This part needs a proper mechanism to pass conversation_id from Director to ModifyResponse.
-		// For now, we'll skip updating the store with Gemini's response to avoid complexity without a proper solution.
+		// --- Update Conversation Context with Assistant's Response ---
+		if geminiResponseMessage != "" {
+			err = convStore.AddMessage(conversationID, "assistant", geminiResponseMessage)
+			if err != nil {
+				log.Errorf("Failed to add assistant message to conversation %s: %v", conversationID, err)
+				// Do not return error here, as we still want to send the response to the client
+			}
+		}
 
 		// Re-marshal the Gemini response back to OpenAI format for the client
-		// This part is similar to the original proxy_handler logic
 		var openAIResp struct {
 			ID      string `json:"id"`
 			Object  string `json:"object"`
